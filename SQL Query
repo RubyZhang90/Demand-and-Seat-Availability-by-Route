@@ -1,0 +1,76 @@
+SELECT 
+SB.*,
+RD.kmdistance,
+RD.distance_miles
+FROM
+(
+SELECT 
+S.*,
+B.Bookings,
+B."farenetconfirmationdate"
+FROM
+(SELECT 
+       upper(airlineiatacode) AS airlineiatacode,
+       farenettimestamp::DATE as farenetdate,
+       fullroute as fullroute,
+       upper(departureairportiatacode) as departureairportiatacode,
+       upper(arrivalairportiatacode) as arrivalairportiatacode, 
+       DATE(departuredate) as departuredate,
+       DATE(returndate) as returndate,
+       upper(flighttype) as flighttype,
+       count(distinct farenetid)            AS Searches,
+       AVG(case
+           when totalpriceusd > '0.0'
+           AND totalpriceusd < '10000.0'
+           then totalpriceusd
+           else '0'
+           end)                    AS total_price_usd
+FROM datacore.public.normalized_farenet_001
+WHERE __createdat >= '2021-01-01'::TIMESTAMP and __createdat <= current_date::TIMESTAMP
+  AND length(departuredate) between 8 and 10
+  AND length(returndate) between 8 and 10
+  AND "airlineiatacode" = 'XX' --change the airline iatacode here.
+  AND isusersearch=TRUE
+  AND "departureairportiatacode" is not null
+  AND "arrivalairportiatacode" is not null
+GROUP BY "airlineiatacode","farenetdate","fullroute","departureairportiatacode", "arrivalairportiatacode","departuredate", "returndate", "flighttype") S
+
+LEFT JOIN 
+
+(SELECT 
+       upper(airlineiatacode) AS airlineiatacode_B,
+       farenetconfirmationtimestamp::DATE as farenetconfirmationdate,
+       fullroute as fullroute_B,
+       upper(departureairportiatacode) as departureairportiatacode_B,
+       upper(arrivalairportiatacode) as arrivalairportiatacode_B, 
+       DATE(departuredate) AS departuredate_B,
+       DATE(returndate) AS returndate_B,
+       upper(flighttype) AS flighttype_B,
+       count(distinct farenetconfirmationid)            AS Bookings
+FROM datacore.public.normalized_farenet_confirmation_001
+WHERE __createdat >= '2021-01-01'::TIMESTAMP and __createdat <= current_date::TIMESTAMP
+  AND "airlineiatacode_B" = 'XX' --change the airline iatacode here.
+  AND "departureairportiatacode" is not null
+  AND "arrivalairportiatacode" is not null
+GROUP BY "airlineiatacode", "farenetconfirmationdate","fullroute","departureairportiatacode", "arrivalairportiatacode","departuredate_B", "returndate_B", "flighttype") B
+
+ON    S."departureairportiatacode"=B."departureairportiatacode_B"
+AND   S."arrivalairportiatacode" = B."arrivalairportiatacode_B"
+AND   S."fullroute" = B."fullroute_B"
+AND   S."departuredate"=B."departuredate_B"
+AND   S."returndate"=B."returndate_B"
+--AND   S."flighttype"=B."flighttype_B"
+AND   S."farenetdate"= B."farenetconfirmationdate"
+) SB
+
+LEFT JOIN
+
+(SELECT DISTINCT
+      originairportiatacode,
+      destinationairportiatacode,
+      kmdistance, 
+      kmdistance * 0.6214 as distance_miles
+FROM custom.route_distances) RD
+
+ON SB."departureairportiatacode"=RD."originairportiatacode"
+AND SB."arrivalairportiatacode"=RD."destinationairportiatacode"
